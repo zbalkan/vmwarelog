@@ -8,7 +8,6 @@ from typing import Final
 
 from pyVim.connect import SmartConnect
 from pyVmomi import vim
-from pyVmomi.vim.event import Event, EventFilterSpec, EventHistoryCollector, EventManager
 
 from EventType import EventType
 
@@ -29,7 +28,7 @@ def main() -> None:
     if (len(sys.argv)) == 1:
         parser.print_help()
 
-    parser.add_argument("-h", "--host",
+    parser.add_argument("-t", "--target", "--host",
                         dest="host",
                         required=True,
                         help="VMware vCenter host IP or FQDN")
@@ -37,7 +36,8 @@ def main() -> None:
     parser.add_argument("-p", "--port",
                         dest="port",
                         required=True,
-                        help="VMware vCenter host port to connect")
+                        help="VMware vCenter host port to connect",
+                        default=443)
 
     args = parser.parse_args()
 
@@ -91,10 +91,10 @@ def main() -> None:
 
     time_filter, filter_spec = get_filters(from_now=timedelta(hours=1))
 
-    event_collector: EventHistoryCollector = get_collector(
+    event_collector: vim.event.EventHistoryCollector = get_collector(
         host=host, port=port, user=user, password=password, filter_spec=filter_spec)
 
-    events: list[Event] = get_events(
+    events: list[vim.event.Event] = get_events(
         event_collector=event_collector)
 
     logging.debug(
@@ -109,9 +109,9 @@ def main() -> None:
     for _, event in enumerate(events):
         print(event.fullFormattedMessage)
 
-        if (event.EventSeverity == Event.EventSeverity.error):
+        if (event.EventSeverity == vim.event.Event.EventSeverity.error):
             remote_logger.error(event.fullFormattedMessage)
-        elif (event.EventSeverity == Event.EventSeverity.warning):
+        elif (event.EventSeverity == vim.event.Event.EventSeverity.warning):
             remote_logger.warning(event.fullFormattedMessage)
         else:
             remote_logger.info(event.fullFormattedMessage)
@@ -124,12 +124,12 @@ def init_vmware_log() -> logging.Logger:
     return vmware_logger
 
 
-def get_events(event_collector: EventHistoryCollector) -> list[Event]:
-    events: list[Event] = []
+def get_events(event_collector: vim.event.EventHistoryCollector) -> list[vim.event.Event]:
+    events: list[vim.event.Event] = []
 
     while True:
         # If there's a huge number of events in the expected time range, this while loop will take a while.
-        events_in_page: list[Event] = event_collector.ReadNext(
+        events_in_page: list[vim.event.Event] = event_collector.ReadNext(
             maxCount=PAGE_SIZE)
 
         if len(events_in_page) == 0:
@@ -142,17 +142,25 @@ def get_events(event_collector: EventHistoryCollector) -> list[Event]:
     return sorted(events, key=lambda x: x.createdTime)
 
 
-def get_collector(host: str, port: int, user: str, password: str, filter_spec: EventFilterSpec) -> EventHistoryCollector:
-    si: vim.ServiceInstance = SmartConnect(
-        host=host, user=user, pwd=password, port=port)
-    eventManager: EventManager = si.content.eventManager
-    event_collector: EventHistoryCollector = eventManager.CreateCollector(
-        filter=filter_spec)
+def get_collector(host: str, port: int, user: str, password: str, filter_spec: vim.event.EventFilterSpec) -> vim.event.EventHistoryCollector:
+    try:
+        si: vim.ServiceInstance = SmartConnect(
+            host=host, user=user, pwd=password, port=port)
+        eventManager: vim.event.EventManager = si.content.eventManager
+        event_collector: vim.event.EventHistoryCollector = eventManager.CreateCollector(
+            filter=filter_spec)
 
-    return event_collector
+        return event_collector
+    except Exception as ex:
+        if hasattr(ex,'errno'):
+            if getattr(ex,'errno') == 11001:  # type: ignore
+                raise Exception('Could not resolve server address')
+        else:
+            if hasattr(ex,'characters_written'):
+                 logging.debug(getattr(ex,'characters_written'))
+            raise Exception(str(ex))
 
-
-def get_filters(from_now: timedelta, event_types:list[EventType] = []) -> tuple[EventFilterSpec.ByTime, EventFilterSpec]:
+def get_filters(from_now: timedelta, event_types:list[EventType] = []) -> tuple[vim.event.EventFilterSpec.ByTime, vim.event.EventFilterSpec]:
     time_filter = vim.event.EventFilterSpec.ByTime()
     now: datetime = datetime.now()
     time_filter.beginTime = now - from_now
@@ -186,12 +194,14 @@ if __name__ == "__main__":
         logging.info('Exiting.')
     except KeyboardInterrupt:
         print('Cancelled by user.')
+        logging.info('Exiting.')
         try:
             sys.exit(0)
         except SystemExit:
             os._exit(0)
     except Exception as ex:
         print('ERROR: ' + str(ex))
+        logging.info('Exiting.')
         try:
             sys.exit(1)
         except SystemExit:
