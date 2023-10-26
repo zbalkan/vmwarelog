@@ -1,3 +1,4 @@
+#! python3
 import argparse
 import getpass
 import logging
@@ -23,7 +24,7 @@ def main() -> None:
 
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         description=f"""
-            {APP_NAME} ({APP_VERSION}) is a demo tool which allows a file encrypted using a shared key allowing decryption via k of n number of keys.
+            {APP_NAME} ({APP_VERSION}) is a tool to pull vmware logs based on time and type filters. It is better than collecting syslog with all of the noise.
             """)
     if (len(sys.argv)) == 1:
         parser.print_help()
