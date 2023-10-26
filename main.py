@@ -1,16 +1,16 @@
 import argparse
+import getpass
 import logging
 import os
 import sys
-import getpass
-
+from datetime import datetime, timedelta
 from typing import Final
 
-from datetime import datetime, timedelta
-
-from pyVmomi.vim.event import EventHistoryCollector, Event, EventManager, EventFilterSpec
 from pyVim.connect import SmartConnect
 from pyVmomi import vim
+from pyVmomi.vim.event import Event, EventFilterSpec, EventHistoryCollector, EventManager
+
+from EventType import EventType
 
 ENCODING: Final[str] = "utf-8"
 APP_NAME: Final[str] = 'vmwarelog'
@@ -47,30 +47,81 @@ def main() -> None:
     user: str = input('VMware username:\n')
     password: str = getpass.getpass()
 
+    # The EventFilterSpec full params details:
+    # https://vdc-repo.vmware.com/vmwb-repository/dcr-public/da47f910-60ac-438b-8b9b-6122f4d14524/16b7274a-bf8b-4b4c-a05e-746f2aa93c8c/doc/vim.event.EventFilterSpec.html
+    # https://helpcenter.veeam.com/docs/mp/vmware_reference/vceventsdoc.html?ver=9a
+    #
+    event_types: list[EventType] = [
+                EventType.AccountCreatedEvent,
+                EventType.AccountRemovedEvent,
+                EventType.AccountUpdatedEvent,
+                EventType.UserUpgradeEvent,
+                EventType.UserPasswordChanged,
+                EventType.AdminPasswordNotChangedEvent,
+                EventType.VimAccountPasswordChangedEvent,
+                EventType.UserAssignedToGroup,
+                EventType.UserUnassignedFromGroup,
+                EventType.UserLoginSessionEvent,
+                EventType.UserLogoutSessionEvent,
+                EventType.HostAdminEnableEvent,
+                EventType.HostAdminDisableEvent,
+                EventType.AuthorizationEvent,
+                EventType.RoleAddedEvent,
+                EventType.RoleRemovedEvent,
+                EventType.RoleUpdatedEvent,
+                EventType.PermissionAddedEvent,
+                EventType.PermissionRemovedEvent,
+                EventType.PermissionUpdatedEvent,
+                EventType.HostConfigAppliedEvent,
+                EventType.ClusterReconfiguredEvent,
+                EventType.ClusterCreatedEvent,
+                EventType.ClusterDestroyedEvent,
+                EventType.HostAddedEvent,
+                EventType.HostRemovedEvent,
+                EventType.VmCreatedEvent,
+                EventType.VmCreatedEvent,
+                EventType.VmRenamedEvent,
+                EventType.VmClonedEvent,
+                EventType.VmRemovedEvent,
+                EventType.VmMigratedEvent
+                ]
+
+    # If you want to also filter on certain events, uncomment the below line.
+    # time_filter, filter_spec = get_filters(from_now=timedelta(hours=1), event_types=event_types)
+
     time_filter, filter_spec = get_filters(from_now=timedelta(hours=1))
 
     event_collector: EventHistoryCollector = get_collector(
-        host, port, user, password, filter_spec)
+        host=host, port=port, user=user, password=password, filter_spec=filter_spec)
 
     events: list[Event] = get_events(
         event_collector=event_collector)
 
-    print(
+    logging.debug(
         "Got totally {} events in the given time range from {} to {}.".format(
             len(events), time_filter.beginTime, time_filter.endTime
         )
     )
-    vmwarelogger = logging.getLogger('vmware')
+
+    # Now we can create log file
+    remote_logger: logging.Logger = init_vmware_log()
 
     for _, event in enumerate(events):
         print(event.fullFormattedMessage)
 
         if (event.EventSeverity == Event.EventSeverity.error):
-            vmwarelogger.error(event.fullFormattedMessage)
+            remote_logger.error(event.fullFormattedMessage)
         elif (event.EventSeverity == Event.EventSeverity.warning):
-            vmwarelogger.warning(event.fullFormattedMessage)
+            remote_logger.warning(event.fullFormattedMessage)
         else:
-            vmwarelogger.info(event.fullFormattedMessage)
+            remote_logger.info(event.fullFormattedMessage)
+
+def init_vmware_log() -> logging.Logger:
+    vmware_logger: logging.Logger = logging.getLogger('vmware_remote')
+    remote_log = logging.FileHandler('remote.log')
+    remote_log.setLevel(logging.INFO)
+    vmware_logger.addHandler(remote_log)
+    return vmware_logger
 
 
 def get_events(event_collector: EventHistoryCollector) -> list[Event]:
@@ -101,21 +152,16 @@ def get_collector(host: str, port: int, user: str, password: str, filter_spec: E
     return event_collector
 
 
-def get_filters(from_now: timedelta) -> tuple[EventFilterSpec.ByTime, EventFilterSpec]:
+def get_filters(from_now: timedelta, event_types:list[EventType] = []) -> tuple[EventFilterSpec.ByTime, EventFilterSpec]:
     time_filter = vim.event.EventFilterSpec.ByTime()
     now: datetime = datetime.now()
     time_filter.beginTime = now - from_now
     time_filter.endTime = now
-    event_type_list: list[str] = []
-    # If you want to also filter on certain events, uncomment the below event_type_list.
-    # The EventFilterSpec full params details:
-    # https://pubs.vmware.com/vsphere-6-5/topic/com.vmware.wssdk.smssdk.doc/vim.event.EventFilterSpec.html
-    # event_type_list = ['VmRelocatedEvent', 'DrsVmMigratedEvent', 'VmMigratedEvent']
+    event_type_list: list[str] = [e.name for e in event_types]
     filter_spec = vim.event.EventFilterSpec(
         eventTypeId=event_type_list, time=time_filter)
 
     return time_filter, filter_spec
-
 
 def get_root_dir() -> str:
     if getattr(sys, 'frozen', False):

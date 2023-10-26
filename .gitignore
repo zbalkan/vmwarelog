@@ -133,12 +133,6 @@ dmypy.json
 
 # Visual studio
 .vs/
+.vscode/
 
 # Project specific excludes
-pyvenv.cfg
-/Scripts
-cspell.json
-/out
-launch.json
-*.db
-*.ini
