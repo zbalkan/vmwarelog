@@ -11,12 +11,15 @@ from typing import Final, Optional
 from pyVim.connect import SmartConnect
 from pyVmomi import vim
 
+from eventTypes import EventType
+
+USE_CONF: bool = False
 try:
     from conf import EVENT_TYPES, HOST, INTERVAL_MINUTES, LOG_PATH, PASSWORD, PORT, USERNAME
+    USE_CONF = True
 except ImportError:
     print('No configuration file defined.')
 
-from eventTypes import EventType
 
 ENCODING: Final[str] = "utf-8"
 APP_NAME: Final[str] = 'vmwarelog'
@@ -118,7 +121,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if ('HOST' in locals()):
+    if (USE_CONF):
         host: str = HOST
     else:
         host = str(args.vCenter)  # type: ignore
@@ -129,12 +132,12 @@ def main() -> None:
     except:
         raise Exception(f"Could not resolve target host name: {host}")
 
-    if ('PORT' in locals()):
+    if (USE_CONF):
         port: int = PORT
     else:
         port = int(args.port)  # type: ignore
 
-    if ('LOG_PATH' in locals()):
+    if (USE_CONF):
         output: str = LOG_PATH
     else:
         output = str(args.output)  # type: ignore
@@ -145,7 +148,7 @@ def main() -> None:
         raise Exception(f"Path does not exist or is not accessible.")
     logging.info(f"Output: {output}")
 
-    if ('USERNAME' in locals()):
+    if (USE_CONF):
         user: str = USERNAME
         password: str = PASSWORD
     else:
@@ -155,7 +158,7 @@ def main() -> None:
     print(f"Connecting to {fqdn}:{port} ({ip}) as {user}...")
     logging.info(f"Connecting to {fqdn}:{port} ({ip}) as {user}...")
 
-    if ('INTERVAL_MINUTES' in locals()):
+    if (USE_CONF):
         interval: int = INTERVAL_MINUTES
     else:
         interval = 15
