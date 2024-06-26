@@ -11,7 +11,11 @@ from typing import Final, Optional
 from pyVim.connect import SmartConnect
 from pyVmomi import vim
 
-from conf import EVENT_TYPES, HOST, INTERVAL_MINUTES, LOG_PATH, PASSWORD, PORT, USERNAME
+try:
+    from conf import EVENT_TYPES, HOST, INTERVAL_MINUTES, LOG_PATH, PASSWORD, PORT, USERNAME
+except ImportError:
+    print('No configuration file defined.')
+
 from eventTypes import EventType
 
 ENCODING: Final[str] = "utf-8"
@@ -114,7 +118,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if (HOST):
+    if ('HOST' in locals()):
         host: str = HOST
     else:
         host = str(args.vCenter)  # type: ignore
@@ -125,12 +129,12 @@ def main() -> None:
     except:
         raise Exception(f"Could not resolve target host name: {host}")
 
-    if (PORT):
+    if ('PORT' in locals()):
         port: int = PORT
     else:
         port = int(args.port)  # type: ignore
 
-    if (LOG_PATH):
+    if ('LOG_PATH' in locals()):
         output: str = LOG_PATH
     else:
         output = str(args.output)  # type: ignore
@@ -141,22 +145,27 @@ def main() -> None:
         raise Exception(f"Path does not exist or is not accessible.")
     logging.info(f"Output: {output}")
 
-    if (USERNAME is None):
-        user: str = input('VMware username:\n')
-        password: str = getpass.getpass()
+    if ('USERNAME' in locals()):
+        user: str = USERNAME
+        password: str = PASSWORD
     else:
-        user = USERNAME
-        password = PASSWORD
+        user = input('VMware username:\n')
+        password = getpass.getpass()
 
     print(f"Connecting to {fqdn}:{port} ({ip}) as {user}...")
     logging.info(f"Connecting to {fqdn}:{port} ({ip}) as {user}...")
 
+    if ('INTERVAL_MINUTES' in locals()):
+        interval: int = INTERVAL_MINUTES
+    else:
+        interval = 15
+
     if (EVENT_TYPES):
         time_filter, filter_spec = get_filters(
-            from_now=timedelta(minutes=INTERVAL_MINUTES), event_types=EVENT_TYPES)
+            from_now=timedelta(minutes=interval), event_types=EVENT_TYPES)
     else:
         time_filter, filter_spec = get_filters(
-            from_now=timedelta(minutes=INTERVAL_MINUTES))
+            from_now=timedelta(minutes=interval))
 
     event_collector: vim.event.EventHistoryCollector = get_collector(
         host, port, user, password, filter_spec)
