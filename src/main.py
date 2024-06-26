@@ -11,7 +11,7 @@ from typing import Final, Optional
 from pyVim.connect import SmartConnect
 from pyVmomi import vim
 
-from conf import EVENT_TYPES, INTERVAL_MINUTES, PASSWORD, USERNAME
+from conf import EVENT_TYPES, HOST, INTERVAL_MINUTES, LOG_PATH, PASSWORD, PORT, USERNAME
 from eventTypes import EventType
 
 ENCODING: Final[str] = "utf-8"
@@ -89,12 +89,10 @@ def main() -> None:
         description=f"""
             {APP_NAME} ({APP_VERSION}) is a tool to pull VMware vCenter logs based on time and type filters. It is better than collecting syslog with all of the noise.
             """)
-    if (len(sys.argv)) == 1:
-        parser.print_help()
 
     parser.add_argument("-t", "--target",
                         dest="vCenter",
-                        required=True,
+                        required=False,
                         help="VMware vCenter host IP or FQDN")
 
     parser.add_argument("-p", "--port",
@@ -105,28 +103,39 @@ def main() -> None:
 
     parser.add_argument("-o", "--output",
                         dest='output',
-                        required=True,
+                        required=False,
                         help="The file where vCenter logs are written")
 
     parser.add_argument("-c", "--conf",
                         dest="conf",
                         required=False,
                         default="conf.py",
-                        help="Path to credentials file (Default: conf.py)")
+                        help="Path to configuration file (Default: conf.py)")
 
     args = parser.parse_args()
 
-    host: str = str(args.vCenter)  # type: ignore
+    if (HOST):
+        host: str = HOST
+    else:
+        host = str(args.vCenter)  # type: ignore
+
     try:
         fqdn = socket.getfqdn(host)
         ip = socket.gethostbyname(fqdn)
     except:
         raise Exception(f"Could not resolve target host name: {host}")
 
-    port: int = int(args.port)  # type: ignore
-    output: str = str(args.output)  # type: ignore
-    output = os.path.abspath(output)
+    if (PORT):
+        port: int = PORT
+    else:
+        port = int(args.port)  # type: ignore
 
+    if (LOG_PATH):
+        output: str = LOG_PATH
+    else:
+        output = str(args.output)  # type: ignore
+
+    output = os.path.abspath(output)
     output_dir: str = os.path.dirname(output)
     if ((os.path.exists(output_dir) is False) and (os.access(output_dir, os.W_OK) is False)):
         raise Exception(f"Path does not exist or is not accessible.")
@@ -206,7 +215,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     try:
-        logging.basicConfig(filename=os.path.join(f'./{APP_NAME}.log'),
+        logging.basicConfig(filename=os.path.join(f'/var/log/{APP_NAME}.log'),
                             encoding=ENCODING,
                             format='%(asctime)s:%(name)s:%(levelname)s:%(message)s',
                             datefmt="%Y-%m-%dT%H:%M:%S%z",

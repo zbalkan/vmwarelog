@@ -6,6 +6,13 @@ from eventTypes import EventType
 USERNAME: Final[str] = ''
 PASSWORD: Final[str] = ''
 
+# Target
+HOST: Final[str] = ''
+PORT: Final[int] = 443
+
+# Log path (output)
+LOG_PATH: Final[str] = "/var/log/vmware.log"
+
 INTERVAL_MINUTES: int = 15
 
 # The EventFilterSpec full params details:
