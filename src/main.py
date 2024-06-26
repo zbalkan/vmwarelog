@@ -1,10 +1,10 @@
 import argparse
 import getpass
+import json
 import logging
 import os
 import socket
 import sys
-import time
 from datetime import datetime, timedelta
 from typing import Final, Optional
 
@@ -19,47 +19,6 @@ APP_VERSION: Final[str] = '0.1'
 
 # The default and also the max event number per page till vSphere v6.5, you can change it to a smaller value by SetCollectorPageSize().
 PAGE_SIZE: Final[int] = 1000
-
-
-def retry(func, ex_type=Exception, limit=0, wait_ms=100, wait_increase_ratio=2, logger=None):  # -> Any:
-    """
-    Retry a function invocation until no exception occurs
-    :param func: function to invoke
-    :param ex_type: retry only if exception is subclass of this type
-    :param limit: maximum number of invocation attempts
-    :param wait_ms: initial wait time after each attempt in milliseconds.
-    :param wait_increase_ratio: increase wait period by multiplying this value after each attempt.
-    :param logger: if not None, retry attempts will be logged to this logging.logger
-    :return: result of first successful invocation
-    :raises: last invocation exception if attempts exhausted or exception is not an instance of ex_type
-
-    Reference: https://davidoha.medium.com/python-retry-on-exception-d36fa58df4e1
-    """
-    attempt = 1
-    while True:
-        try:
-            return func()
-        except Exception as ex:
-            if not isinstance(ex, ex_type):
-                raise ex  # type: ignore
-            if 0 < limit <= attempt:
-                print("no more attempts")
-
-                if logger:
-                    logger.warning("no more attempts")
-                raise ex
-
-            print(f"failed execution attempt {attempt}")
-            if logger:
-                logger.error(
-                    f"failed execution attempt {attempt}", exc_info=ex)
-
-            attempt += 1
-            print(f"waiting {wait_ms} ms before attempt {attempt}")
-            if logger:
-                logger.info(f"waiting {wait_ms} ms before attempt {attempt}")
-            time.sleep(wait_ms / 1000)
-            wait_ms *= wait_increase_ratio
 
 
 def get_events(event_collector: vim.event.EventHistoryCollector) -> list[vim.event.Event]:
@@ -87,6 +46,7 @@ def get_collector(host: str, port: int, user: str, password: str, filter_spec: v
         port=port,
         user=user,
         pwd=password,
+        disableSslCertValidation=True,
         connectionPoolTimeout=30)  # 30 seconds for timeout
     eventManager: vim.event.EventManager = si.content.eventManager
     event_collector: vim.event.EventHistoryCollector = eventManager.CreateCollector(
@@ -192,30 +152,24 @@ def main() -> None:
         EventType.VmRenamedEvent,
         EventType.VmClonedEvent,
         EventType.VmRemovedEvent,
-        EventType.VmMigratedEvent
+        EventType.VmMigratedEvent,
+        EventType.EventEx,
+        EventType.ExtendedEvent
     ]
 
     time_filter, filter_spec = get_filters(
         from_now=timedelta(hours=1), event_types=event_types)
 
-    # Try once, wait 10 seconds and retry. Then 20, then 30...
-    # Retry 5 times in total.
-    event_collector: vim.event.EventHistoryCollector = retry(
-        func=get_collector(
-            host, port, user, password, filter_spec),
-        ex_type=Exception,
-        limit=5,
-        wait_ms=10000,
-        wait_increase_ratio=10000,
-        logger=logging.getLogger())
+    event_collector: vim.event.EventHistoryCollector = get_collector(
+        host, port, user, password, filter_spec)
 
     print("Connected.")
     logging.info("Connected.")
     print("Generated collector.")
-    logging.info("Connected.")
+    logging.info("Generated collector.")
 
     print("Querying events...")
-    logging.info("Connected.")
+    logging.info("Querying events...")
     events: list[vim.event.Event] = get_events(
         event_collector=event_collector)
 
@@ -229,7 +183,20 @@ def main() -> None:
     logging.info(f"Writing events to target: {output}...")
     with open(output, mode="a+", encoding=ENCODING) as vcenter_logs:
         for _, event in enumerate(events):
-            vcenter_logs.write(event.fullFormattedMessage)
+            root = {
+                "vmware": {
+                    "timestamp": event.createdTime.isoformat(),
+                    "event": event.fullFormattedMessage,
+                    "username": event.userName,
+                    "properties": {
+                        prop.name: (value if (value := getattr(
+                            event, prop.name)) != '<unset>' else None)
+                        for prop in event._GetPropertyList()
+                    }
+                }
+            }
+            vcenter_logs.write(json.dumps(
+                root, sort_keys=True, default=str) + "\n")
 
     print("Log collection completed!")
     logging.info("Log collection completed!")
