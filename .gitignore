@@ -136,3 +136,4 @@ dmypy.json
 .vscode/
 
 # Project specific excludes
+conf.py

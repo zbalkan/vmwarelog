@@ -11,6 +11,7 @@ from typing import Final, Optional
 from pyVim.connect import SmartConnect
 from pyVmomi import vim
 
+from conf import EVENT_TYPES, INTERVAL_MINUTES, PASSWORD, USERNAME
 from eventTypes import EventType
 
 ENCODING: Final[str] = "utf-8"
@@ -69,6 +70,19 @@ def get_filters(from_now: timedelta, event_types: Optional[list[EventType]] = No
     return time_filter, filter_spec
 
 
+def add_entity_to_root(root, entity_name, entity) -> None:
+    if entity is not None:
+        try:
+            if (hasattr(entity, "name")):
+                root["vmware"][entity_name] = {
+                    "name": entity.name
+                }
+            else:
+                root["vmware"][entity_name] = entity
+        except Exception as e:
+            print(f"Error adding {entity_name} to root: {e}")
+
+
 def main() -> None:
 
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
@@ -94,6 +108,12 @@ def main() -> None:
                         required=True,
                         help="The file where vCenter logs are written")
 
+    parser.add_argument("-c", "--conf",
+                        dest="conf",
+                        required=False,
+                        default="conf.py",
+                        help="Path to credentials file (Default: conf.py)")
+
     args = parser.parse_args()
 
     host: str = str(args.vCenter)  # type: ignore
@@ -106,59 +126,28 @@ def main() -> None:
     port: int = int(args.port)  # type: ignore
     output: str = str(args.output)  # type: ignore
     output = os.path.abspath(output)
-    # if os.path.exists(os.path.dirname(output)):
-    #     raise Exception(
-    #         "The parent folder of the vCenter log path does not exist.")
 
-    user: str = input('VMware username:\n')
-    password: str = getpass.getpass()
+    output_dir: str = os.path.dirname(output)
+    if ((os.path.exists(output_dir) is False) and (os.access(output_dir, os.W_OK) is False)):
+        raise Exception(f"Path does not exist or is not accessible.")
+    logging.info(f"Output: {output}")
+
+    if (USERNAME is None):
+        user: str = input('VMware username:\n')
+        password: str = getpass.getpass()
+    else:
+        user = USERNAME
+        password = PASSWORD
 
     print(f"Connecting to {fqdn}:{port} ({ip}) as {user}...")
     logging.info(f"Connecting to {fqdn}:{port} ({ip}) as {user}...")
 
-    # The EventFilterSpec full params details:
-    # https://vdc-repo.vmware.com/vmwb-repository/dcr-public/da47f910-60ac-438b-8b9b-6122f4d14524/16b7274a-bf8b-4b4c-a05e-746f2aa93c8c/doc/vim.event.EventFilterSpec.html
-    # https://helpcenter.veeam.com/docs/mp/vmware_reference/vceventsdoc.html?ver=9a
-    #
-    event_types: list[EventType] = [
-        EventType.AccountCreatedEvent,
-        EventType.AccountRemovedEvent,
-        EventType.AccountUpdatedEvent,
-        EventType.UserUpgradeEvent,
-        EventType.UserPasswordChanged,
-        EventType.AdminPasswordNotChangedEvent,
-        EventType.VimAccountPasswordChangedEvent,
-        EventType.UserAssignedToGroup,
-        EventType.UserUnassignedFromGroup,
-        EventType.UserLoginSessionEvent,
-        EventType.UserLogoutSessionEvent,
-        EventType.HostAdminEnableEvent,
-        EventType.HostAdminDisableEvent,
-        EventType.AuthorizationEvent,
-        EventType.RoleAddedEvent,
-        EventType.RoleRemovedEvent,
-        EventType.RoleUpdatedEvent,
-        EventType.PermissionAddedEvent,
-        EventType.PermissionRemovedEvent,
-        EventType.PermissionUpdatedEvent,
-        EventType.HostConfigAppliedEvent,
-        EventType.ClusterReconfiguredEvent,
-        EventType.ClusterCreatedEvent,
-        EventType.ClusterDestroyedEvent,
-        EventType.HostAddedEvent,
-        EventType.HostRemovedEvent,
-        EventType.VmCreatedEvent,
-        EventType.VmCreatedEvent,
-        EventType.VmRenamedEvent,
-        EventType.VmClonedEvent,
-        EventType.VmRemovedEvent,
-        EventType.VmMigratedEvent,
-        EventType.EventEx,
-        EventType.ExtendedEvent
-    ]
-
-    time_filter, filter_spec = get_filters(
-        from_now=timedelta(hours=1), event_types=event_types)
+    if (EVENT_TYPES):
+        time_filter, filter_spec = get_filters(
+            from_now=timedelta(minutes=INTERVAL_MINUTES), event_types=EVENT_TYPES)
+    else:
+        time_filter, filter_spec = get_filters(
+            from_now=timedelta(minutes=INTERVAL_MINUTES))
 
     event_collector: vim.event.EventHistoryCollector = get_collector(
         host, port, user, password, filter_spec)
@@ -183,20 +172,33 @@ def main() -> None:
     logging.info(f"Writing events to target: {output}...")
     with open(output, mode="a+", encoding=ENCODING) as vcenter_logs:
         for _, event in enumerate(events):
-            root = {
-                "vmware": {
-                    "timestamp": event.createdTime.isoformat(),
-                    "event": event.fullFormattedMessage,
-                    "username": event.userName,
-                    "properties": {
-                        prop.name: (value if (value := getattr(
-                            event, prop.name)) != '<unset>' else None)
-                        for prop in event._GetPropertyList()
+            try:
+                root = {
+                    "vmware": {
+                        "timestamp": event.createdTime.isoformat(),
+                        "event": event.fullFormattedMessage,
+                        "username": event.userName,
+                        "properties": {k: v for k, v in event.__dict__.items() if (
+                            v is not None and v != '<unset>')}
                     }
                 }
-            }
-            vcenter_logs.write(json.dumps(
-                root, sort_keys=True, default=str) + "\n")
+
+                add_entity_to_root(root, "host", event.host)
+                add_entity_to_root(root, "vm", event.vm)
+                add_entity_to_root(root, "ds", event.ds)
+                add_entity_to_root(root, "dvs", event.dvs)
+                add_entity_to_root(root, "net", event.net)
+                add_entity_to_root(root, "computeResource",
+                                   event.computeResource)
+                add_entity_to_root(root, "datacenter", event.datacenter)
+                add_entity_to_root(root, "info", getattr(event, "info", None))
+                add_entity_to_root(root, "ipAddress",
+                                   getattr(event, "ipAddress", None))
+
+                vcenter_logs.write(json.dumps(
+                    root, sort_keys=True, default=str) + "\n")
+            except AttributeError as e:
+                logging.error(f"Error processing event {event}: {e}")
 
     print("Log collection completed!")
     logging.info("Log collection completed!")
