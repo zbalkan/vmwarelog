@@ -16,7 +16,7 @@ from eventTypes import EventType
 
 ENCODING: Final[str] = "utf-8"
 APP_NAME: Final[str] = 'vmwarelog'
-APP_VERSION: Final[str] = '0.1'
+APP_VERSION: Final[str] = '0.2'
 
 # The default and also the max event number per page till vSphere v6.5, you can change it to a smaller value by SetCollectorPageSize().
 PAGE_SIZE: Final[int] = 1000
