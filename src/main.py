@@ -92,6 +92,8 @@ def add_entity_to_root(root, entity_name, entity) -> None:
 
 def main() -> None:
 
+    start_time = datetime.now()
+
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         description=f"""
             {APP_NAME} ({APP_VERSION}) is a tool to pull VMware vCenter logs based on time and type filters. It is better than collecting syslog with all of the noise.
@@ -159,16 +161,19 @@ def main() -> None:
     logging.info(f"Connecting to {fqdn}:{port} ({ip}) as {user}...")
 
     if (USE_CONF):
-        interval: int = INTERVAL_MINUTES
+        interval: int = INTERVAL_MINUTES * 60
     else:
-        interval = 15
+        interval = 15 * 60
 
+    # In order to tolerate the query time drift between two runs,
+    # we calculate the time between the start of application and filtering time
+    # Also, we add 2 extra seconds as a buffer.
     if (EVENT_TYPES):
         time_filter, filter_spec = get_filters(
-            from_now=timedelta(minutes=interval), event_types=EVENT_TYPES)
+            from_now=timedelta(seconds=interval + (datetime.now() - start_time).seconds + 2), event_types=EVENT_TYPES)
     else:
         time_filter, filter_spec = get_filters(
-            from_now=timedelta(minutes=interval))
+            from_now=timedelta(seconds=interval + (datetime.now() - start_time).seconds + 2))
 
     event_collector: vim.event.EventHistoryCollector = get_collector(
         host, port, user, password, filter_spec)
