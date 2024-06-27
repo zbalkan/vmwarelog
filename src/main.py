@@ -1,3 +1,6 @@
+#! /usr/bin/env python3
+# -*- coding: UTF-8 -*-
+
 import argparse
 import getpass
 import json
@@ -88,6 +91,32 @@ def add_entity_to_root(root, entity_name, entity) -> None:
                 root["vmware"][entity_name] = entity
         except Exception as e:
             print(f"Error adding {entity_name} to root: {e}")
+
+
+def to_event_log(event) -> dict[str, dict]:
+    root = {
+        "vmware": {
+            "timestamp": event.createdTime.isoformat(),
+            "event": event.fullFormattedMessage,
+            "username": event.userName,
+            "properties": {k: v for k, v in event.__dict__.items() if (
+                v is not None and v != '<unset>')}
+        }
+    }
+
+    add_entity_to_root(root, "host", event.host)
+    add_entity_to_root(root, "vm", event.vm)
+    add_entity_to_root(root, "ds", event.ds)
+    add_entity_to_root(root, "dvs", event.dvs)
+    add_entity_to_root(root, "net", event.net)
+    add_entity_to_root(root, "computeResource",
+                       event.computeResource)
+    add_entity_to_root(root, "datacenter", event.datacenter)
+    add_entity_to_root(root, "info", getattr(event, "info", None))
+    add_entity_to_root(root, "ipAddress",
+                       getattr(event, "ipAddress", None))
+
+    return root
 
 
 def main() -> None:
@@ -199,27 +228,7 @@ def main() -> None:
     with open(output, mode="a+", encoding=ENCODING) as vcenter_logs:
         for _, event in enumerate(events):
             try:
-                root = {
-                    "vmware": {
-                        "timestamp": event.createdTime.isoformat(),
-                        "event": event.fullFormattedMessage,
-                        "username": event.userName,
-                        "properties": {k: v for k, v in event.__dict__.items() if (
-                            v is not None and v != '<unset>')}
-                    }
-                }
-
-                add_entity_to_root(root, "host", event.host)
-                add_entity_to_root(root, "vm", event.vm)
-                add_entity_to_root(root, "ds", event.ds)
-                add_entity_to_root(root, "dvs", event.dvs)
-                add_entity_to_root(root, "net", event.net)
-                add_entity_to_root(root, "computeResource",
-                                   event.computeResource)
-                add_entity_to_root(root, "datacenter", event.datacenter)
-                add_entity_to_root(root, "info", getattr(event, "info", None))
-                add_entity_to_root(root, "ipAddress",
-                                   getattr(event, "ipAddress", None))
+                root = to_event_log(event)
 
                 vcenter_logs.write(json.dumps(
                     root, sort_keys=True, default=str) + "\n")
